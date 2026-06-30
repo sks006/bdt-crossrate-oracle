@@ -1,0 +1,9 @@
+[programs.localnet]
+bdt_oracle = "target/deploy/bdt_oracle.so"
+
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "anchor test"

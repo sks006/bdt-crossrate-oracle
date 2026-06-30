@@ -1,0 +1,3 @@
+[workspace]
+members = ["programs/bdt-oracle"]
+exclude = ["target"]

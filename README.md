@@ -5,19 +5,24 @@ An enterprise-grade, high-efficiency Solana oracle program that synthesizes a re
 bdt-crossrate-oracle/
 ├── Anchor.toml
 ├── Cargo.toml
-├── programs/
-│   └── bdt-oracle/
-│       ├── src/
-│       │   ├── lib.rs                  # Instruction routing and program entries
-│       │   ├── errors.rs                # Math and temporal verification failure enums
-│       │   ├── state.rs                 # Byte-aligned on-chain account structures
-│       │   ├── math.rs                  # Multi-decimal fixed-point arithmetic engine
-│       │   └── instructions/
-│       │       ├── mod.rs
-│       │       ├── initialize.rs        # Initialization of the state authority
-│       │       └── update.rs            # Crank execution loop and validation checks
-└── .github/
-    └── workflows/
-        └── crank.yml                   # Ephemeral 30-minute cron workflow
+├── package.json
+├── tsconfig.json
+├── .github/
+│   └── workflows/
+│       └── crank.yml               # Ephemeral 1-hour cron executor
+├── client/
+│   └── crank.ts                    # Stateless TS execution loop with cross-rate calculation
+└── programs/
+    └── bdt-oracle/
+        ├── Cargo.toml
+        └── src/
+            ├── lib.rs              # Zero-logic compile-time instruction routing
+            ├── errors.rs            # Mathematical/temporal verification codes
+            ├── state.rs             # 76-byte static memory layout mapping
+            ├── math.rs              # Fixed-point u128 cross-rate arithmetic boundaries
+            └── instructions/
+                ├── mod.rs           # Module namespace flattening
+                ├── initialize.rs    # Program state configuration context
+                └── update.rs        # Ingestion, validation, and write loops
 
 ```
