@@ -5,19 +5,23 @@ pub mod instructions;
 pub mod math;
 pub mod state;
 
-use instructions::{ initialize::*, update::* };
+pub use instructions::*;
 
-declare_id!("BDTOracle1111111111111111111111111111111111");
+declare_id!("4Xg8ntPZ8LE616Tqy4r18vBUuftombmb1jp15d6dqwAp");
 
 #[program]
 pub mod bdt_oracle {
     use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        initialize::handler(ctx)
+    pub fn initialize_oracle(ctx: Context<Initialize>, max_deviation_bps: u32) -> Result<()> {
+        instructions::initialize_handler(ctx, max_deviation_bps)
     }
 
-    pub fn update(ctx: Context<Update>, bdt_eur_price: i128, eur_usd_price: i128) -> Result<()> {
-        update::handler(ctx, bdt_eur_price, eur_usd_price)
+    pub fn update_rate(
+        ctx: Context<Update>,
+        relay_bdt_eur_scaled: u64,
+        relay_timestamp: i64,
+    ) -> Result<()> {
+        instructions::update_handler(ctx, relay_bdt_eur_scaled, relay_timestamp)
     }
 }

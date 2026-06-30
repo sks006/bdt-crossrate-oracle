@@ -1,0 +1,40 @@
+# Dependency directories
+node_modules/
+
+# Anchor
+.anchor/
+
+# Rust build artifacts
+target/
+
+# Local Solana keypairs and deployment keys
+target/deploy/*.json
+*keypair.json
+*.json
+
+# Exceptions: keep tsconfig.json and package.json
+!tsconfig.json
+!package.json
+!package-lock.json
+!Anchor.toml
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local.db
+
+# IDEs and editors
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS files
+.DS_Store
+Thumbs.db

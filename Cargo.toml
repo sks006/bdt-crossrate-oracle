@@ -1,3 +1,9 @@
 [workspace]
 members = ["programs/bdt-oracle"]
 exclude = ["target"]
+
+[profile.release]
+overflow-checks = true
+
+[profile.dev]
+overflow-checks = true

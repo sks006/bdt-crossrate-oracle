@@ -1,19 +1,28 @@
-name: Crank Oracle
+name: Serverless BDT Oracle Crank
 
 on:
   schedule:
-    - cron: '*/30 * * * *'
-  workflow_dispatch:
+    # Trigger execution exactly once per hour at minute 0
+    - cron: '0 * * * *'
+  workflow_dispatch: # Retains manual execution capabilities inside the GitHub dashboard
 
 jobs:
-  build:
+  update-oracle-state:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Initialize Runtime Node Environment
+        uses: actions/setup-node@v4
         with:
-          toolchain: stable
-          profile: minimal
-          override: true
-      - name: Build workspace
-        run: cargo build --workspace --locked
+          node-version: '20'
+
+      - name: Build System Node Dependencies
+        run: npm install
+
+      - name: Execute Oracle Ingestion Pipeline
+        env:
+          RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
+          CRANK_PRIVATE_KEY: ${{ secrets.CRANK_PRIVATE_KEY }}
+        run: npx ts-node client/crank.ts

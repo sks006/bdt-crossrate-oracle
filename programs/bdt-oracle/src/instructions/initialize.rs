@@ -1,20 +1,21 @@
 use anchor_lang::prelude::*;
-use crate::state::OracleState;
+use crate::state::BdtOracleAccount;
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
-    #[account(init, payer = authority, space = OracleState::LEN)]
-    pub oracle_state: Account<'info, OracleState>,
+    #[account(init, payer = authority, space = BdtOracleAccount::LEN)]
+    pub oracle_state: Account<'info, BdtOracleAccount>,
     #[account(mut)]
     pub authority: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
 
-pub fn handler(ctx: Context<Initialize>) -> Result<()> {
+pub fn initialize_handler(ctx: Context<Initialize>, max_deviation_bps: u32) -> Result<()> {
     let state = &mut ctx.accounts.oracle_state;
-    state.authority = ctx.accounts.authority.key();
-    state.bdt_eur_price = 0;
-    state.eur_usd_price = 0;
-    state.last_update_slot = Clock::get()?.slot;
+    state.crank_authority = ctx.accounts.authority.key();
+    state.derived_bdt_usd_scaled = 0;
+    state.pyth_last_timestamp = 0;
+    state.relay_last_timestamp = 0;
+    state.max_deviation_bps = max_deviation_bps;
     Ok(())
 }
