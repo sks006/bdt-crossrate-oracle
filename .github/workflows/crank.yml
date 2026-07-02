@@ -10,6 +10,7 @@ jobs:
   update-oracle-state:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    environment: .env
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
