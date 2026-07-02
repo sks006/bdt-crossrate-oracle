@@ -5,6 +5,33 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 
+function loadEnvFile(): void {
+  const envPath = path.resolve(__dirname, "../.env");
+  if (!fs.existsSync(envPath)) {
+    return;
+  }
+
+  for (const rawLine of fs.readFileSync(envPath, "utf8").split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) {
+      continue;
+    }
+
+    const separatorIndex = line.indexOf("=");
+    if (separatorIndex === -1) {
+      continue;
+    }
+
+    const key = line.slice(0, separatorIndex).trim();
+    const value = line.slice(separatorIndex + 1).trim();
+    if (!process.env[key]) {
+      process.env[key] = value.replace(/^['"]|['"]$/g, "");
+    }
+  }
+}
+
+loadEnvFile();
+
 export interface ExchangeRatePayload {
   base_code: string;
   conversion_rates: {
@@ -34,13 +61,22 @@ export class BdtOracleCrank {
     this.authority = Keypair.fromSecretKey(secretKey);
 
     // Derive oracle state keypair deterministically from authority
-    const hash = crypto.createHash("sha256").update(this.authority.secretKey).digest();
+    const hash = crypto
+      .createHash("sha256")
+      .update(this.authority.secretKey)
+      .digest();
     this.oracleStateKeypair = Keypair.fromSeed(new Uint8Array(hash));
+
+    // Debug: verify keypair derivation consistency
+    console.debug(`[Init] Authority pubkey: ${this.authority.publicKey.toBase58()}`);
+    console.debug(`[Init] Oracle state pubkey: ${this.oracleStateKeypair.publicKey.toBase58()}`);
+    console.debug(`[Init] Program ID: ${env.programId}`);
+    console.debug(`[Init] RPC URL: ${env.rpcUrl}`);
 
     const provider = new anchor.AnchorProvider(
       this.connection,
       new anchor.Wallet(this.authority),
-      { preflightCommitment: "confirmed" }
+      { preflightCommitment: "confirmed" },
     );
 
     // Load IDL
@@ -49,33 +85,42 @@ export class BdtOracleCrank {
       throw new Error(`IDL not found at ${idlPath}. Run 'anchor build' first.`);
     }
     const idl = JSON.parse(fs.readFileSync(idlPath, "utf8"));
-    this.program = new anchor.Program(idl, provider);
+    this.program = new anchor.Program(idl, provider) as anchor.Program<any>;
 
     // Determine Pyth EUR/USD feed address
-    const isMainnet = env.rpcUrl.includes("mainnet") || env.rpcUrl.includes("api.mainnet-beta");
+    const isMainnet =
+      env.rpcUrl.includes("mainnet") || env.rpcUrl.includes("api.mainnet-beta");
     this.pythFeed = isMainnet
       ? new PublicKey("HeGExgu926687pc49M82823mdK913JpdS5vmNhM7mZcZ")
-      : new PublicKey("HQ2t2YrgoFB2sLq7GeyT5nzx5EMsc1DfWce1a42KHobc");
+      : new PublicKey("E36MyBbavhYKHVLWR79GiReNNnBDiHj6nWA7htbkNZbh");
   }
 
   /**
    * Fetches the exchange rates and calculates the BDT/EUR cross rate scaled to 1e9.
    */
-  async fetchAndCrossMultiply(endpoint: string): Promise<{ scaledRatio: number; timestamp: number }> {
+  async fetchAndCrossMultiply(
+    endpoint: string,
+  ): Promise<{ scaledRatio: number; timestamp: number }> {
     console.log(`Fetching exchange rates from ${endpoint}...`);
     const response = await axios.get<ExchangeRatePayload>(endpoint);
     const payload = response.data;
 
-    if (!payload.conversion_rates || !payload.conversion_rates.BDT || !payload.conversion_rates.EUR) {
-      throw new Error("Invalid exchange rate payload: BDT or EUR rates missing.");
+    if (
+      !payload.conversion_rates ||
+      !payload.conversion_rates.BDT ||
+      !payload.conversion_rates.EUR
+    ) {
+      throw new Error(
+        "Invalid exchange rate payload: BDT or EUR rates missing.",
+      );
     }
 
     const bdtPerUsd = payload.conversion_rates.BDT;
     const eurPerUsd = payload.conversion_rates.EUR;
-    
+
     // Compute cross rate
     const bdtPerEur = bdtPerUsd / eurPerUsd;
-    
+
     // Scale to 1e9
     const scaledRatio = Math.floor(bdtPerEur * 1_000_000_000);
     const timestamp = Math.floor(Date.now() / 1000);
@@ -97,12 +142,12 @@ export class BdtOracleCrank {
     if (accountInfo === null) {
       console.log("Oracle state account not found. Initializing...");
       const tx = await this.program.methods
-        .initialize(maxDeviationBps)
+        .initializeOracle(maxDeviationBps)
         .accounts({
-          oracleState: statePubkey,
+          oracleState: this.oracleStateKeypair.publicKey,
           authority: this.authority.publicKey,
           systemProgram: SystemProgram.programId,
-        } as any)
+        })
         .signers([this.oracleStateKeypair])
         .rpc();
 
@@ -118,17 +163,20 @@ export class BdtOracleCrank {
   /**
    * Submits the scaled ratio and timestamp to the on-chain program.
    */
-  async broadcastToSolana(scaledRatio: number, timestamp: number): Promise<string> {
+  async broadcastToSolana(
+    scaledRatio: number,
+    timestamp: number,
+  ): Promise<string> {
     await this.ensureInitialized();
 
     console.log("Broadcasting price update to Solana...");
     const tx = await this.program.methods
-      .update(new anchor.BN(scaledRatio), new anchor.BN(timestamp))
+      .updateRate(new anchor.BN(scaledRatio), new anchor.BN(timestamp))
       .accounts({
         oracleState: this.oracleStateKeypair.publicKey,
         crankAuthority: this.authority.publicKey,
         pythEurUsdFeed: this.pythFeed,
-      } as any)
+      })
       .rpc();
 
     console.log(`Update transaction signature: ${tx}`);
@@ -138,9 +186,11 @@ export class BdtOracleCrank {
 
 // Entrypoint for CLI execution
 async function main() {
-  const rpcUrl = process.env.RPC_URL || "https://api.devnet.solana.com";
-  const privateKeyRaw = process.env.CRANK_PRIVATE_KEY;
-  const programId = process.env.PROGRAM_ID || "4Xg8ntPZ8LE616Tqy4r18vBUuftombmb1jp15d6dqwAp";
+  const rpcUrl = process.env.RPC_URL?.trim() || "https://api.devnet.solana.com";
+  const privateKeyRaw = process.env.CRANK_PRIVATE_KEY?.trim();
+  const programId =
+    process.env.PROGRAM_ID?.trim() ||
+    "4Xg8ntPZ8LE616Tqy4r18vBUuftombmb1jp15d6dqwAp";
 
   if (!privateKeyRaw) {
     console.error("CRANK_PRIVATE_KEY environment variable is required.");
@@ -149,11 +199,17 @@ async function main() {
 
   try {
     const crank = new BdtOracleCrank({ rpcUrl, privateKeyRaw, programId });
-    
-    const apiKey = process.env.EXCHANGE_RATE_API_KEY || "e3e3993e6e1c5bce5699786e";
+
+    const apiKey = process.env.EXCHANGE_RATE_API_KEY?.trim();
+    if (!apiKey) {
+      console.error("EXCHANGE_RATE_API_KEY environment variable is required.");
+      process.exit(1);
+    }
+
     const endpoint = `https://v6.exchangerate-api.com/v6/${apiKey}/latest/USD`;
-    const { scaledRatio, timestamp } = await crank.fetchAndCrossMultiply(endpoint);
-    
+    const { scaledRatio, timestamp } =
+      await crank.fetchAndCrossMultiply(endpoint);
+
     // Broadcast update
     const signature = await crank.broadcastToSolana(scaledRatio, timestamp);
     console.log(`Successfully updated oracle state! Signature: ${signature}`);

@@ -1,9 +1,13 @@
-use anchor_lang::prelude::*;
 use crate::state::BdtOracleAccount;
+use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
-    #[account(init, payer = authority, space = BdtOracleAccount::LEN)]
+    #[account(
+        init,
+        payer = authority,
+        space = BdtOracleAccount::LEN
+    )]
     pub oracle_state: Account<'info, BdtOracleAccount>,
     #[account(mut)]
     pub authority: Signer<'info>,
