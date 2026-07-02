@@ -25,7 +25,9 @@ pub fn update_handler(
     let current_time = Clock::get()?.unix_timestamp;
     
     // Pyth price should not be older than 3600 seconds (1 hour)
-    let pyth_price = if pyth_account_info.key() == anchor_lang::solana_program::pubkey!("E36MyBbavhYKHVLWR79GiReNNnBDiHj6nWA7htbkNZbh") {
+    let pyth_price = if pyth_account_info.key() == anchor_lang::solana_program::pubkey!("E36MyBbavhYKHVLWR79GiReNNnBDiHj6nWA7htbkNZbh")
+        || pyth_account_info.key() == anchor_lang::solana_program::pubkey!("HQ2t2YrgoFB2sLq7GeyT5nzx5EMsc1DfWce1a42KHobc")
+    {
         price_feed.get_price_unchecked()
     } else {
         price_feed.get_price_no_older_than(current_time, 3600)
@@ -36,7 +38,8 @@ pub fn update_handler(
         return Err(error!(OracleError::InvalidPrice));
     }
     
-    if relay_timestamp > current_time {
+    // Allow up to 60 seconds of clock drift tolerance
+    if relay_timestamp > current_time + 60 {
         return Err(error!(OracleError::FutureTimestamp));
     }
     

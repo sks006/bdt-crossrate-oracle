@@ -123,7 +123,8 @@ export class BdtOracleCrank {
 
     // Scale to 1e9
     const scaledRatio = Math.floor(bdtPerEur * 1_000_000_000);
-    const timestamp = Math.floor(Date.now() / 1000);
+    // Subtract a 5-second buffer to account for minor clock drift relative to Solana validator clock
+    const timestamp = Math.floor(Date.now() / 1000) - 5;
 
     console.log(`USD/BDT: ${bdtPerUsd}, USD/EUR: ${eurPerUsd}`);
     console.log(`Derived BDT/EUR: ${bdtPerEur} (scaled: ${scaledRatio})`);
