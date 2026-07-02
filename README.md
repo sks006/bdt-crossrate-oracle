@@ -1,61 +1,76 @@
-# BDT Crossrate Oracle
+# 🧬 BDT Cross-Rate Oracle
 
-An enterprise-grade, high-efficiency Solana oracle program that synthesizes a real-time, fixed-point BDT/USD price feed. The architecture is explicitly decoupled into an asymmetric cross-rate engine: it matches a low-frequency, low-liquidity off-chain fiat leg updated via a zero-cost serverless crank with a high-frequency on-chain leg.
+[![Solana Devnet](https://img.shields.io/badge/Solana-Devnet-blueviolet?style=flat-square&logo=solana)](https://explorer.solana.com/?cluster=devnet)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.5-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
+[![Rust](https://img.shields.io/badge/Rust-2021-orange?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 
-```
-bdt-crossrate-oracle/
-├── Anchor.toml
-├── Cargo.toml
-├── package.json
-├── tsconfig.json
-├── .github/
-│   └── workflows/
-│       └── crank.yml               # Ephemeral 1-hour cron executor
-├── client/
-│   └── crank.ts                    # Stateless TS execution loop with cross-rate calculation
-└── programs/
-    └── bdt-oracle/
-        ├── Cargo.toml
-        └── src/
-            ├── lib.rs              # Zero-logic compile-time instruction routing
-            ├── errors.rs            # Mathematical/temporal verification codes
-            ├── state.rs             # 76-byte static memory layout mapping
-            ├── math.rs              # Fixed-point u128 cross-rate arithmetic boundaries
-            └── instructions/
-                ├── mod.rs           # Module namespace flattening
-                ├── initialize.rs    # Program state configuration context
-                └── update.rs        # Ingestion, validation, and write loops
-```
+An enterprise-grade, high-efficiency Solana oracle program that synthesizes a real-time, fixed-point **BDT/USD (Bangladeshi Taka to US Dollar)** price feed. 
+
+Since BDT is a low-liquidity fiat currency without direct, active on-chain Pyth or Chainlink feeds, this oracle utilizes an **Asymmetric Cross-Rate Engine**. It combines a low-frequency off-chain BDT/EUR fiat leg (updated via a serverless crank) with a high-frequency, live on-chain EUR/USD Pyth price feed to calculate a highly accurate BDT/USD rate on-chain.
 
 ---
 
-## On-Chain Deployments (Devnet)
+## 📐 Architecture & Flow
 
-- **Program ID**: `4Xg8ntPZ8LE616Tqy4r18vBUuftombmb1jp15d6dqwAp`
-- **BDT/USD Oracle Price Feed Account**: `CCW6UZ3uf2Y4XKc6XgE3A1Y9hn74AdzKjqoTZ9dk7vmj`
+The system runs on a hybrid execution model to achieve zero-cost on-chain storage with high price fidelity.
+
+```mermaid
+graph TD
+    A[ExchangeRate-API] -- 1. Fetch Fiat Rates --> B[Serverless Crank TS Client]
+    C[Pyth Network EUR/USD Feed] -- 2. On-Chain Live Price --> D[BDT Oracle Program]
+    B -- 3. Submit Scaled BDT/EUR + Timestamp --> D
+    D -- 4. Asymmetric Cross-Rate Multiplication --> E[On-Chain BDT/USD Oracle State]
+```
+
+### Core Math (Fixed-Point Arithmetic)
+The cross-rate calculation is processed on-chain using 128-bit precision to prevent overflow/underflow, then normalized down to 6 decimals:
+
+$$\text{BDT/USD} = \text{BDT/EUR (Relayed, 9 Decimals)} \times \text{EUR/USD (Pyth, 8 Decimals)}$$
 
 ---
 
-## Oracle State Account Layout
+## 🚀 On-Chain Deployment (Devnet)
 
-The state account uses a static memory layout of exactly **76 bytes** (including the 8-byte Anchor discriminator). All values are stored in **little-endian (LE)** format.
+* **Program ID**: `4Xg8ntPZ8LE616Tqy4r18vBUuftombmb1jp15d6dqwAp`
+* **BDT/USD Oracle Price Feed Account (Query this to get BDT Price)**: `CCW6UZ3uf2Y4XKc6XgE3A1Y9hn74AdzKjqoTZ9dk7vmj`
+
+> [!IMPORTANT]  
+> The **BDT/USD Oracle Price Feed Account** (`CCW6UZ3uf2Y4XKc6XgE3A1Y9hn74AdzKjqoTZ9dk7vmj`) is the public address that stores the live price data on-chain. This is the account that developers, dApps, and smart contracts must read/query to retrieve the current BDT rate.
+
+---
+
+## 🔒 Safety & Security Features
+
+The oracle includes multiple robust validation checks to guarantee price feed integrity:
+
+1. **Deviation Threshold Protection**: Rejects any update that deviates from the previous price by more than a specified percentage (default: `5%` / 500 bps), protecting downstream protocols from flash-crashes or manipulated inputs.
+2. **Strict Chronological Sequence**: Rejects out-of-order timestamps (`relay_timestamp <= last_timestamp`), preventing replay attacks.
+3. **Clock-Drift Tolerance**: Rejects future timestamps while allowing a safe `60-second` clock drift window to accommodate validator time drift.
+4. **Staleness Bounds**: Rejects stale Pyth feed inputs in production environments (maximum age of 1 hour).
+
+---
+
+## 📊 Oracle State Account Layout
+
+The state account occupies exactly **76 bytes** (including the 8-byte Anchor discriminator). All values are stored in **little-endian (LE)** format.
 
 | Offset (Bytes) | Field Name | Type | Description |
 | :--- | :--- | :--- | :--- |
 | `0 - 8` | Anchor Discriminator | `[u8; 8]` | Auto-generated struct identifier |
-| `8 - 40` | `crank_authority` | `Pubkey` | Authorized authority that can submit updates |
-| `40 - 56` | `derived_bdt_usd_scaled` | `u128` | **BDT/USD Price scaled to 6 decimals (1e6)** |
-| `56 - 64` | `pyth_last_timestamp` | `i64` | Timestamp of the last processed Pyth price update |
-| `64 - 72` | `relay_last_timestamp`| `i64` | Timestamp of the last processed off-chain relayer update |
-| `72 - 76` | `max_deviation_bps` | `u32` | Max allowed basis point deviation between updates |
+| `8 - 40` | `crank_authority` | `Pubkey` | Authorized public key permitted to submit updates |
+| `40 - 56` | `derived_bdt_usd_scaled` | `u128` | **Derived BDT/USD Price scaled to 6 decimals (1e6)** |
+| `56 - 64` | `pyth_last_timestamp` | `i64` | Verified Pyth feed slot cluster time baseline |
+| `64 - 72` | `relay_last_timestamp`| `i64` | Injected relayer UNIX clock tracking timestamp |
+| `72 - 76` | `max_deviation_bps` | `u32` | Max allowed update deviation (in basis points) |
 
 ---
 
-## Integration & Consumption Guide
+## 🛠️ Integration & Developer Guide
 
-### 1. TypeScript / JavaScript Consumption
+### 1. Consuming BDT/USD Price in TypeScript
 
-You can fetch and decode the oracle state directly using `@solana/web3.js` without any Anchor dependencies.
+Fetch and deserialize the oracle state using `@solana/web3.js` without any Anchor dependencies:
 
 ```typescript
 import { Connection, PublicKey } from "@solana/web3.js";
@@ -89,11 +104,9 @@ async function fetchBdtUsdPrice(): Promise<number> {
 fetchBdtUsdPrice().catch(console.error);
 ```
 
-### 2. Rust (Solana Program CPI / Deserialization)
+### 2. Consuming BDT/USD Price in a Solana Program (Rust)
 
-In your Solana program, define the oracle state layout and deserialize it directly from the accounts.
-
-#### Account Definition
+#### Struct Definition
 ```rust
 use anchor_lang::prelude::*;
 
@@ -107,14 +120,14 @@ pub struct BdtOracleAccount {
 }
 ```
 
-#### Consumer Handler Code
+#### Consumer Handler
 ```rust
 use anchor_lang::prelude::*;
 use crate::BdtOracleAccount;
 
 #[derive(Accounts)]
 pub struct ConsumePrice<'info> {
-    /// CHECK: Validated in instruction handler
+    /// CHECK: Inspected in instruction handler
     pub bdt_oracle: Account<'info, BdtOracleAccount>,
 }
 
@@ -124,12 +137,10 @@ pub fn handle_consume_price(ctx: Context<ConsumePrice>) -> Result<()> {
     // Retrieve the scaled BDT/USD price (6 decimals)
     let scaled_price: u128 = oracle.derived_bdt_usd_scaled;
     
-    // Check for age / staleness
+    // Enforce freshness (e.g., maximum age 1 hour)
     let current_time = Clock::get()?.unix_timestamp;
-    let staleness_threshold = 3600; // 1 hour safety margin
-    
     require!(
-        current_time - oracle.relay_last_timestamp <= staleness_threshold,
+        current_time - oracle.relay_last_timestamp <= 3600,
         ErrorCode::StalePriceFeed
     );
 
@@ -146,19 +157,51 @@ pub enum ErrorCode {
 
 ---
 
-## Local Development & Testing
+## ⚙️ Local Setup & Configuration
 
-1. **Install dependencies**:
-   ```bash
-   npm install
-   ```
+### Prerequisites
+*   Node.js 18+ & npm
+*   Rust & Cargo
+*   Solana CLI Tools
+*   Anchor CLI (v0.30+)
 
-2. **Run tests**:
-   ```bash
-   anchor test
-   ```
+### 1. Environment Variables (`.env`)
+Create a `.env` file in the root directory:
+```env
+RPC_URL=https://api.devnet.solana.com
+CRANK_PRIVATE_KEY=your_base58_encoded_authority_private_key
+PROGRAM_ID=4Xg8ntPZ8LE616Tqy4r18vBUuftombmb1jp15d6dqwAp
+EXCHANGE_RATE_API_KEY=your_exchangerate_api_key
+```
 
-3. **Run the manual crank**:
-   ```bash
-   npm run crank
-   ```
+### 2. Install Dependencies
+```bash
+npm install
+```
+
+### 3. Run Tests
+Runs the test suite using a local validator loaded with a Pyth EUR/USD feed fixture:
+```bash
+anchor test
+```
+
+### 4. Run the Crank Client Manual Update
+Runs the TypeScript client to fetch the latest rates and submit them to Devnet:
+```bash
+npm run crank
+```
+
+---
+
+## ⏰ Automated Oracle Updates (GitHub Actions Crank)
+
+To maintain a fresh on-chain price feed, this repository includes an automated GitHub Actions cron workflow (`.github/workflows/crank.yml`):
+* **Execution Schedule**: Automatically triggers **every hour** (`0 * * * *`).
+* **Self-Termination Safety**: Configured with a `timeout-minutes: 5` limit. If the RPC connection hangs, the job automatically terminates/kills itself to avoid wasting GitHub Action runner minutes.
+* **Secrets Required**: Make sure to add `SOLANA_RPC_URL`, `CRANK_PRIVATE_KEY`, and `EXCHANGE_RATE_API_KEY` to your GitHub Repository Secrets.
+
+---
+
+## 📄 License
+
+This project is open-source and available under the terms of the [MIT License](LICENSE).

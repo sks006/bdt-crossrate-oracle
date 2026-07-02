@@ -9,6 +9,7 @@ on:
 jobs:
   update-oracle-state:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
@@ -25,4 +26,5 @@ jobs:
         env:
           RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
           CRANK_PRIVATE_KEY: ${{ secrets.CRANK_PRIVATE_KEY }}
+          EXCHANGE_RATE_API_KEY: ${{ secrets.EXCHANGE_RATE_API_KEY }}
         run: npx ts-node client/crank.ts
